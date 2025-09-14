@@ -1,3 +1,219 @@
+# app.R — BFI Psychometrics Teaching App
+# -------------------------------------------------------------
+# Single-file Shiny app using the Big Five Inventory (BFI)
+# data from the `psych` package for teaching psychometrics.
+# -------------------------------------------------------------
+
+# ---- Packages ----
+# (optional auto-install lines; comment out if you manage packages yourself)
+# if (!requireNamespace("shiny", quietly = TRUE)) install.packages("shiny")
+# if (!requireNamespace("shinythemes", quietly = TRUE)) install.packages("shinythemes")
+# if (!requireNamespace("DT", quietly = TRUE)) install.packages("DT")
+# if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
+# if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
+# if (!requireNamespace("tidyr", quietly = TRUE)) install.packages("tidyr")
+# if (!requireNamespace("purrr", quietly = TRUE)) install.packages("purrr")
+# if (!requireNamespace("psych", quietly = TRUE)) install.packages("psych")
+
+library(shiny)
+library(shinythemes)
+library(DT)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(psych)
+
+# ---- Data helpers ----
+load_bfi_data <- function() {
+  df <- psych::bfi
+  # standardize names (no dots)
+  names(df) <- gsub("\\.", "_", make.names(names(df)))
+  df
+}
+
+get_bfi_item_columns <- function(df) {
+  # BFI items are A/C/E/N/O + 1..5
+  grep("^(A|C|E|N|O)[1-9]$", names(df), value = TRUE)
+}
+
+get_bfi_scales <- function(df) {
+  items <- get_bfi_item_columns(df)
+  list(
+    Agreeableness      = items[grepl("^A", items)],
+    Conscientiousness  = items[grepl("^C", items)],
+    Extraversion       = items[grepl("^E", items)],
+    Neuroticism        = items[grepl("^N", items)],
+    Openness           = items[grepl("^O", items)]
+  )
+}
+
+alpha_safe <- function(df_items) {
+  out <- try(psych::alpha(df_items, check.keys = TRUE, warnings = FALSE), silent = TRUE)
+  if (inherits(out, "try-error")) NULL else out
+}
+
+score_scale <- function(df_items) {
+  a <- alpha_safe(df_items)
+  if (is.null(a)) return(rep(NA_real_, nrow(df_items)))
+  keys <- a$keys
+  likert_min <- suppressWarnings(min(df_items, na.rm = TRUE))
+  likert_max <- suppressWarnings(max(df_items, na.rm = TRUE))
+  df_adj <- df_items
+  if (!is.null(keys)) {
+    for (nm in names(keys)) {
+      if (!is.na(keys[[nm]]) && keys[[nm]] < 0) {
+        # reverse-keyed item
+        df_adj[[nm]] <- (likert_max + likert_min) - df_adj[[nm]]
+      }
+    }
+  }
+  rowMeans(df_adj, na.rm = TRUE)
+}
+
+# ---- UI ----
+ui <- fluidPage(
+  theme = shinytheme("flatly"),
+  titlePanel("BFI Psychometrics Teaching App"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      width = 3,
+      h4("Data"),
+      p("By default this app uses the BFI dataset included in the ", code("psych"), " package."),
+      fileInput("file", "Optionally upload a CSV to replace the data", accept = c(".csv")),
+      checkboxInput("header", "CSV has header", TRUE),
+      selectInput("sep", "CSV separator", c(Comma = ",", Semicolon = ";", Tab = "\t"), ","),
+      tags$hr(),
+      
+      h4("Filters"),
+      uiOutput("gender_ui"),
+      uiOutput("education_ui"),
+      sliderInput("age_range", "Age range", min = 0, max = 100, value = c(10, 90), step = 1),
+      checkboxInput("complete_cases", "Drop rows with any missing item responses", FALSE),
+      tags$hr(),
+      
+      h4("General"),
+      checkboxInput("zscore_items", "Z-score items before analyses (within current filter)", FALSE),
+      helpText("Tip: Use z-scoring to remove mean-level differences and focus on covariance structure."),
+      tags$hr()
+    ),
+    
+    mainPanel(
+      width = 9,
+      tabsetPanel(id = "tabs", type = "pills",
+                  
+                  tabPanel("Documentation",
+                           br(),
+                           h3("About the BFI dataset"),
+                           p("The ", code("psych::bfi"), " dataset contains 25 self-report items from the International Personality Item Pool (IPIP), collected via the SAPA web-based project. It includes responses from about 2,800 participants and is commonly used to demonstrate scale construction, factor analysis, and IRT."),
+                           p("Along with the 25 items (A, C, E, N, O; five per trait), three demographics are available: ",
+                             strong("gender"), ", ", strong("education"), ", and ", strong("age"), "."),
+                           tags$ul(
+                             tags$li(HTML("<b>gender</b>: 1 = male, 2 = female")),
+                             tags$li(HTML("<b>education</b>: 1 = HS, 2 = finished HS, 3 = some college, 4 = college graduate, 5 = graduate degree")),
+                             tags$li(HTML("<b>age</b>: years"))
+                           ),
+                           br(),
+                           h4("Sources"),
+                           tags$ul(
+                             tags$li(tags$a(href = "https://www.rdocumentation.org/packages/psych/versions/2.5.6/topics/bfi", target = "_blank", "RDocumentation: psych::bfi")),
+                             tags$li(tags$a(href = "https://personality-project.org/r/html/bfi.html", target = "_blank", "Personality Project: bfi help page"))
+                           )
+                  ),
+                  
+                  tabPanel("Sample (Demographics)",
+                           br(),
+                           h4("Participant Sample: Frequencies & Descriptives"),
+                           p("Summaries respect current filters (gender/education/age ranges)."),
+                           fluidRow(
+                             column(6,
+                                    h5("Gender Frequencies"),
+                                    DTOutput("freq_gender")
+                             ),
+                             column(6,
+                                    h5("Education Frequencies"),
+                                    DTOutput("freq_education")
+                             )
+                           ),
+                           br(),
+                           fluidRow(
+                             column(6,
+                                    h5("Age Descriptives"),
+                                    DTOutput("age_summary")
+                             ),
+                             column(6,
+                                    h5("Age Histogram"),
+                                    plotOutput("age_hist", height = 260)
+                             )
+                           )
+                  ),
+                  
+                  tabPanel("Item Descriptives",
+                           br(),
+                           DTOutput("item_desc"),
+                           br(),
+                           textOutput("item_desc_note")
+                  ),
+                  
+                  tabPanel("Reliability",
+                           br(),
+                           fluidRow(
+                             column(5, selectInput("scale", "Select Big Five scale",
+                                                   choices = c("Agreeableness","Conscientiousness","Extraversion","Neuroticism","Openness")))
+                           ),
+                           verbatimTextOutput("alpha_text"),
+                           DTOutput("alpha_table"),
+                           br(),
+                           h4("Explanation of Terms"),
+                           p("- ", strong("r_item_total"), ": correlation between each item and the total score of the scale (item–total correlation). Higher values mean the item aligns well with the rest."),
+                           p("- ", strong("alpha_if_deleted"), ": Cronbach's alpha if that item were removed. Shows whether deleting the item would improve reliability."),
+                           p("- ", strong("Raw_alpha"), ": Cronbach's alpha using raw item scores. A measure of internal consistency."),
+                           p("- ", strong("Std_Alpha"), ": Alpha computed on standardized items (removes scale differences)."),
+                           p("- ", strong("Avg_r"), ": Average inter-item correlation across items in the scale."),
+                           p("- ", strong("Omega"), ": McDonald's omega (total), factor-model reliability; often more accurate than alpha."),
+                           br(),
+                           h4("All scales"),
+                           DTOutput("alpha_all_scales"),
+                           br(),
+                           h4("What these reliability statistics mean"),
+                           tags$div(style = "font-size: 0.95em;",
+                                    tags$ul(
+                                      tags$li(HTML("<b>r_item_total</b>: Corrected item–total correlation (item vs. sum of the remaining items). Low/negative values suggest misfit.")),
+                                      tags$li(HTML("<b>alpha_if_deleted</b>: Cronbach’s α if this item were removed; higher than current α suggests dropping could help.")),
+                                      tags$li(HTML("<b>Raw_Alpha</b>: α from the raw covariance matrix (unstandardized).")),
+                                      tags$li(HTML("<b>Std_Alpha</b>: α from the correlation matrix (standardized).")),
+                                      tags$li(HTML("<b>Avg_r</b>: Mean inter-item correlation within the scale.")),
+                                      tags$li(HTML("<b>Omega</b>: McDonald’s ω<sub>t</sub> (total) from a common-factor model."))
+                                    )
+                           )
+                  ),
+                  
+                  tabPanel("Correlations & Plots",
+                           br(),
+                           wellPanel(
+                             fluidRow(
+                               column(5, selectInput("corr_item_x", "Item X", choices = NULL)),
+                               column(5, selectInput("corr_item_y", "Item Y", choices = NULL))
+                             ),
+                             fluidRow(column(12, verbatimTextOutput("two_item_r"))),
+                             plotOutput("two_item_scatter", height = 350)
+                           ),
+                           fluidRow(
+                             column(6, plotOutput("corr_heat",  height = 400)),
+                             column(6, plotOutput("scale_hist", height = 400))
+                           ),
+                           br(),
+                           h4("Scatterplot Matrix of Big Five Scale Scores"),
+                           plotOutput("scatter_matrix", height = 600)
+                  )
+                  
+      )
+    )
+  )
+)
+
+
 server <- function(input, output, session) {
   default_df <- load_bfi_data()
   
