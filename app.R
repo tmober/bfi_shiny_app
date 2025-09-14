@@ -131,8 +131,28 @@ ui <- fluidPage(
                                    verbatimTextOutput("alpha_text"),
                                    DTOutput("alpha_table"),
                                    br(),
+                                   h4("Explanation of Terms"),
+                                   p("- ", strong("r_item_total"), ": correlation between each item and the total score of the scale (item-total correlation). Higher values mean the item aligns well with the rest."),
+                                   p("- ", strong("alpha_if_deleted"), ": Cronbach's alpha if that item were removed. Shows whether deleting the item would improve reliability."),
+                                   p("- ", strong("Raw_alpha"), ": Cronbach's alpha using raw item scores. A measure of internal consistency."),
+                                   p("- ", strong("Std_Alpha"), ": Alpha computed on standardized items (removes scale differences)."),
+                                   p("- ", strong("Avg_r"), ": Average inter-item correlation, i.e., the mean correlation between all pairs of items in the scale."),
+                                   p("- ", strong("Omega"), ": McDonald's omega, a reliability estimate based on factor modeling, often more accurate than alpha."),
+                                   br(),
                                    h4("All scales"),
-                                   DTOutput("alpha_all_scales")
+                                   DTOutput("alpha_all_scales"),
+                                   br(),
+                                   h4("What these reliability statistics mean"),
+                                   tags$div(style = "font-size: 0.95em;",
+                                            tags$ul(
+                                              tags$li(HTML("<b>r_item_total</b>: Corrected item–total correlation. Correlation between an item and the <i>sum of the remaining items</i> on the scale. Higher is better; very low or negative values suggest the item may not fit the scale.")),
+                                              tags$li(HTML("<b>alpha_if_deleted</b>: Cronbach’s α for the scale if this item were removed. If this value is higher than the current α, dropping the item could improve internal consistency.")),
+                                              tags$li(HTML("<b>Raw_Alpha</b>: Cronbach’s α computed on the raw item covariance matrix (unstandardized).")),
+                                              tags$li(HTML("<b>Std_Alpha</b>: Cronbach’s α computed on the correlation matrix (standardized), which removes item scale differences.")),
+                                              tags$li(HTML("<b>Avg_r</b>: Average inter-item correlation across items in the scale (from the correlation matrix).")),
+                                              tags$li(HTML("<b>Omega</b>: McDonald’s ω<sub>t</sub> (total). Reliability estimate from a common-factor model; often less biased than α when tau-equivalence is violated."))
+                                            )
+                                   )
                           ),
                           
                           tabPanel("Correlations & Plots",
